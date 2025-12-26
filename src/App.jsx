@@ -1,38 +1,65 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React, { useState } from "react";
+import Header from "./components/Header";
+import Hero from "./components/Hero";
+import Ingredients from "./components/Ingredients";
+import ImageUpload from "./components/ImageUpload";
+import AlternativeIngredients from "./components/AlternativeIngredients";
+import Preferences from "./components/Preferences";
+import GenerateButton from "./components/GenerateButton";
+import Footer from "./components/Footer";
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [ingredients, setIngredients] = useState([]);
+  const [currentIngredient, setCurrentIngredient] = useState("");
+  const [alternativeIngredients, setAlternativeIngredients] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  const popularIngredients = [
+    "Chicken", "Rice", "Tomatoes", "Onions", "Garlic", 
+    "Pasta", "Beef", "Potatoes", "Cheese", "Eggs"
+  ];
+
+  const addIngredient = (item) => {
+    const value = item || currentIngredient.trim();
+    if (!value || ingredients.includes(value)) return;
+    setIngredients([...ingredients, value]);
+    setCurrentIngredient("");
+  };
+
+  const removeIngredient = (i) =>
+    setIngredients(ingredients.filter((_, index) => index !== i));
+
+  const handleGenerate = () => {
+    setIsGenerating(true);
+    setTimeout(() => setIsGenerating(false), 2000);
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div className="min-h-screen bg-[#EFEFEF]">
+      <Header />
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <Hero />
+        <Ingredients
+          ingredients={ingredients}
+          currentIngredient={currentIngredient}
+          setCurrentIngredient={setCurrentIngredient}
+          addIngredient={addIngredient}
+          removeIngredient={removeIngredient}
+          popularIngredients={popularIngredients}
+        />
+        <ImageUpload />
+        <AlternativeIngredients
+          ingredients={ingredients}
+          alternativeIngredients={alternativeIngredients}
+          setAlternativeIngredients={setAlternativeIngredients}
+        />
+        <Preferences />
+        <GenerateButton
+          handleGenerate={handleGenerate}
+          isGenerating={isGenerating}
+        />
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-        <h1 className="text-4xl font-extrabold text-green-500 p-6 bg-gray-900 rounded-lg">
-  Tailwind Setup Complete!
-</h1>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+      <Footer />
+    </div>
+  );
 }
-
-export default App
