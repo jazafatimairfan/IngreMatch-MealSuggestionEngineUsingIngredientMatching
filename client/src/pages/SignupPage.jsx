@@ -18,33 +18,33 @@ const SignupPage = ({ setCurrentPage }) => {
             username: formData.username,
             email: formData.email,
             password: formData.password, // Send plain, backend will hash it
-            created_at: new Date().toISOString(),
-            last_login: new Date().toISOString()
+            // created_at: new Date().toISOString(),
+            // last_login: new Date().toISOString()
         };
-
+        
+//calling my node.js server
         try {
-            // Replace '/api/signup' with your actual backend URL later
-            // const response = await fetch('http://localhost:5000/api/signup', {
-            //     method: 'POST',
-            //     headers: { 'Content-Type': 'application/json' },
-            //     body: JSON.stringify(userData)
-            // });
+        const response = await fetch('http://localhost:5000/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(userData)
+        });
 
-            // if (response.ok) { ... }
+        const data = await response.json();
 
-            console.log("Real App Data Prepared:", userData);
-            
-            // Mock delay to simulate server hashing and DB save
-            setTimeout(() => {
-                alert("Account created! In a real app, your password was just hashed on the server and saved to the DB.");
-                setIsLoading(false);
-                setCurrentPage('login');
-            }, 1500);
-
-        } catch (error) {
-            console.error("Signup error:", error);
+        if (response.ok) {
+            alert(`Welcome ${data.user.username}! Account created in PostgreSQL.`);
+            setIsLoading(false);
+            setCurrentPage('login');
+        } else {
+            alert(data.error || "Signup failed");
             setIsLoading(false);
         }
+    } catch (error) {
+        console.error("Signup error:", error);
+        alert("Server connection failed.");
+        setIsLoading(false);
+    }
     };
 
     return (

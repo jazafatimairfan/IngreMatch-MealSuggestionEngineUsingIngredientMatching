@@ -7,7 +7,7 @@ const Hero = () => {
         Find Your Perfect Recipe
       </h2>
       <p className="text-[#062b18] text-lg sm:text-xl max-w-3xl mx-auto font-medium">
-        Share what's in your kitchen, and we'll whip up delightful recipe ideas just for you! 🍴✨
+        Share what's in your kitchen, and we'll whip up delightful recipe ideas just for you! 🍴
       </p>
     </div>
   );

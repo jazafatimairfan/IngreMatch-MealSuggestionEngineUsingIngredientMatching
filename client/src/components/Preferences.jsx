@@ -1,11 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { UtensilsCrossed, Clock, Heart } from 'lucide-react';
 
-const Preferences = () => {
-  const [cuisineType, setCuisineType] = useState('Any Cuisine');
-  const [cookingTime, setCookingTime] = useState('Any Time');
-  const [foodPreference, setFoodPreference] = useState('No Preference');
-
+const Preferences = ({ cuisineType, setCuisineType, cookingTime, setCookingTime, foodPreference, setFoodPreference }) => {
   return (
     <div className="mb-8 bg-[#EFEFEF] rounded-3xl shadow-2xl p-6 sm:p-8 border-2 border-[#062b18] hover:border-[#BB4500] transition-all">
       <div className="flex items-center gap-3 mb-6">
@@ -24,10 +20,10 @@ const Preferences = () => {
             onChange={(e) => setCuisineType(e.target.value)}
             className="w-full px-4 py-3 border-2 border-[#062b18] rounded-2xl focus:border-[#BB4500] focus:ring-4 focus:ring-[#BB4500] focus:ring-opacity-20 outline-none transition-all text-[#000000] font-medium bg-white"
           >
-            <option>Any Cuisine</option>
+            <option>Any Cuisine(by default-desi)</option>
             <option>Italian</option>
             <option>Chinese</option>
-            <option>Indian</option>
+            <option>Indian/Pakistani</option>
             <option>Mexican</option>
             <option>Japanese</option>
           </select>
@@ -70,7 +66,7 @@ const Preferences = () => {
         </div>
       </div>
     </div>
-  );4
+  );
 };
 
 export default Preferences;

@@ -2,10 +2,12 @@ import React, { useState, useRef } from 'react';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import RecipePage from './pages/RecipePage';
 
 const App = () => {
     const [showModal, setShowModal] = useState(false);
     const [currentPage, setCurrentPage] = useState('landing');
+    const [user, setUser] = useState(null);
     const leadCaptureRef = useRef(null);
 
     const scrollToLeadCapture = () => {
@@ -31,6 +33,9 @@ const App = () => {
 
                 {currentPage === 'signup' && (
                     <SignupPage setCurrentPage={setCurrentPage} />
+                )}
+                {currentPage === 'recipes' && (
+                    <RecipePage setCurrentPage={setCurrentPage} user={user} />
                 )}
             </main>
 
