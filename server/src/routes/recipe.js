@@ -48,7 +48,7 @@ const enrichBatch = async (batch, startIndex, cuisineHint = null) => {
         ? `These recipes are ${cuisineHint} cuisine — set cuisine field to "${cuisineHint}" for all.`
         : `Detect the most likely cuisine type for each recipe.`;
 
-    const prompt = `You are a culinary expert. For each numbered recipe below, generate full details.
+    const prompt = `You are a professional culinary expert. Enrich each numbered recipe below with complete detailed information.
 
 Recipes:
 ${recipeList}
@@ -56,24 +56,31 @@ ${recipeList}
 ${cuisineNote}
 
 For EACH recipe generate:
-- One-line description (1-2 sentences)
-- Cuisine type (${cuisineHint || 'Italian, Mexican, American, Pakistani, Indian, Chinese, etc.'})
-- Cooking time (e.g. "25 minutes")
-- Dietary info (Vegetarian, Vegan, Gluten Free, Keto, or null)
-- Ingredients list with amounts (6-8 ingredients)
-- Step-by-step cooking instructions (5-6 clear steps)
 
-CRITICAL: Respond ONLY with a valid JSON array. Exactly ${batch.length} objects. No text before or after.
+1. DESCRIPTION: 1-2 clear sentences about the dish.
+2. CUISINE: Specific cuisine (Italian, Mexican, American, Pakistani, Indian, Chinese, French, Japanese, etc.)
+3. COOKING TIME: Realistic time e.g. "25 minutes"
+4. DIETARY: Vegetarian / Vegan / Gluten Free / Keto / or null
+5. INGREDIENTS: 8-12 ingredients, each with EXACT quantity and unit.
+   GOOD: "300g boneless chicken", "2 tablespoons olive oil", "1 teaspoon black pepper"
+   BAD: "chicken", "oil", "pepper"
+6. STEPS: 6-8 detailed step-by-step instructions. Each step must be a full sentence.
+   GOOD: "Heat 2 tablespoons olive oil in a pan over medium heat for 1 minute."
+   BAD: "Heat oil."
+
+RECIPE NAME RULE: Keep titles short — 2 to 4 words only. No adjectives like Delicious, Homemade, Traditional.
+
+CRITICAL: Respond ONLY with a valid JSON array of exactly ${batch.length} objects. No text before or after.
 
 [
   {
     "index": ${startIndex + 1},
-    "description": "...",
-    "cuisine": "...",
-    "cookingTime": "...",
+    "description": "Clear 1-2 sentence description.",
+    "cuisine": "Cuisine name",
+    "cookingTime": "25 minutes",
     "dietary": null,
-    "ingredients": ["200g item", "1 tsp spice"],
-    "steps": ["Step one.", "Step two."]
+    "ingredients": ["300g chicken breast", "2 tbsp olive oil", "1 tsp salt"],
+    "steps": ["Heat oil in pan over medium heat for 1 minute.", "Add chicken and cook 5-7 minutes until golden."]
   }
 ]`;
 
@@ -221,71 +228,71 @@ router.get('/:id/instructions', async (req, res) => {
 });
 
 // ─── Helper: generate one batch of 25 AI recipes ─────────────────────────────
-// ─── Helper: generate one batch of 25 AI recipes ─────────────────────────────
 const generateAIBatch = async (ingredients, cuisineInstruction, timeInstruction, dietaryInstruction, batchNum) => {
 
     const isDefaultCuisine = cuisineInstruction.includes('Pakistani or Indian desi dish');
 
     const cuisineRule = isDefaultCuisine
-        ? `CUISINE RULE: No specific cuisine is selected by the user.
-- Think about the ingredients first: "${ingredients}"
-- Generate recipes from ANY cuisine that naturally and realistically fits these ingredients
-- After deciding the recipe, assign its correct cuisine label (Pakistani, Italian, Mexican, Japanese, Indian, American, Chinese, etc.)
-- Do NOT force desi cuisine on every recipe — only use desi dishes if the ingredients genuinely fit them
-- Each recipe must be ONE complete coherent dish from ONE cuisine`
-        : `CUISINE RULE: User selected "${cuisineInstruction.replace('Every recipe MUST be a traditional ', '').replace(' dish. Generate authentic ', '').split('.')[0]}" cuisine.
-- Every recipe must strictly belong to this cuisine
-- Do NOT mix other cuisines in`;
+        ? `CUISINE: No cuisine filter selected. Generate recipes from ANY cuisine that naturally fits the ingredients. After deciding the recipe, assign its correct cuisine label (Pakistani, Italian, Mexican, Japanese, Indian, American, Chinese, French, etc.). Do NOT force desi cuisine — only use it if the ingredients genuinely suit it.`
+        : `CUISINE: ${cuisineInstruction} Every recipe must strictly belong to this cuisine only. No mixing.`;
 
-    const prompt = `You are an ingredient-based recipe generator. Generate exactly 25 recipes. Batch ${batchNum} of 2 — make this batch DIFFERENT from batch 1.
+    const prompt = `You are a professional ingredient-based recipe generator. Generate exactly 25 recipes. Batch ${batchNum} of 2 — make this batch DIFFERENT dishes from batch 1.
 
 ════════════════════════════════════
-RULE 1 — INGREDIENTS ARE THE STARTING POINT
+STEP 1 — CHECK PREFERENCES FIRST
+════════════════════════════════════
+Before generating anything, apply these filters to EVERY recipe:
+- ${cuisineRule}
+- TIME: ${timeInstruction}
+- DIETARY: ${dietaryInstruction}
+
+════════════════════════════════════
+STEP 2 — USE THE INGREDIENTS
 ════════════════════════════════════
 User ingredients: ${ingredients}
 
-For EVERY recipe you generate:
-- Ask yourself: "Does this dish actually and realistically use ${ingredients}?"
-- If NO → do NOT generate it
-- If YES → generate it
+Every recipe MUST use ALL of these ingredients: ${ingredients}
+These are MANDATORY and must appear in every ingredient list.
+You must add all the supporting ingredients in as much detail as you can. the detailed the better but must be in points (oil, salt, spices, water, etc.)
 
-These ingredients MUST appear in every recipe's ingredient list.
-You may add supporting ingredients (oil, salt, spices, water) but the user's ingredients are the core.
+CORRECT: User enters "chicken, bread, egg" → Chicken Sandwich ✅, Egg Chicken Toast ✅, Chicken Bread Roll ✅
+WRONG: User enters "chicken, bread, egg" → Mango Lassi ❌, Vegetable Biryani ❌, Plain Pasta ❌
 
-EXAMPLES OF CORRECT BEHAVIOR:
-- User enters "chicken, bread, egg" → generate: Chicken Sandwich, Egg & Chicken Toast, Chicken Bread Roll, Chicken Omelette Wrap ✅
-- User enters "chicken, bread, egg" → DO NOT generate: Mango Lassi, Plain Pasta, Nihari (which needs beef not chicken), Vegetable Biryani ❌
+Do NOT mix cuisines within one recipe. Each recipe = one real complete dish from one cuisine.
 
 ════════════════════════════════════
-RULE 2 — CUISINE
+STEP 3 — OUTPUT QUALITY RULES
 ════════════════════════════════════
-${cuisineRule}
+RECIPE NAMES: Short and simple — 2 to 5 words maximum.
+  GOOD: "Chicken Bread Roll", "Spicy Chicken Pasta"
+  BAD: "Delicious Homemade Traditional Chicken Pasta with Creamy Sauce"
 
-NEVER mix cuisines within one recipe:
-- No desi-pasta hybrids
-- No Italian dish with Pakistani spice names
-- No random combination of unrelated dishes
-- Each recipe = one real dish from one real cuisine
+INGREDIENTS: 8-12 ingredients per recipe. Every ingredient MUST include exact quantity and unit.
+  GOOD: "300g boneless chicken", "2 tablespoons olive oil", "1 teaspoon cumin"
+  BAD: "chicken", "oil", "cumin"
 
-════════════════════════════════════
-RULE 3 — OTHER FILTERS
-════════════════════════════════════
-- TIME: ${timeInstruction}
-- DIETARY: ${dietaryInstruction}
-- VARIETY: 25 DIFFERENT dishes — no two the same
-- COUNT: Exactly 25. Count before responding.
+STEPS: 6-8 detailed step-by-step instructions. Each step must be a complete sentence explaining exactly what to do.
+  GOOD: "Heat 2 tablespoons of oil in a pan over medium heat for 1 minute, then add chopped onions."
+  BAD: "Heat oil and add onions."
+
+VARIETY: 25 completely different dishes — no two the same.
+COUNT: Exactly 25. Count before responding.
 
 Respond ONLY with a valid JSON array of EXACTLY 25 objects. No text before or after.
 
 [
   {
-    "title": "Recipe Name",
-    "description": "1-2 sentence description",
+    "title": "Short Recipe Name",
+    "description": "1-2 sentence description of this dish.",
     "cuisine": "Pakistani / Italian / Mexican / Japanese / etc.",
     "cookingTime": "30 minutes",
     "dietary": null,
-    "ingredients": ["500g chicken", "2 bread slices", "1 egg", "supporting ingredients..."],
-    "steps": ["Step 1.", "Step 2.", "Step 3."]
+    "ingredients": ["300g chicken", "2 bread slices", "1 egg", "1 tbsp butter", "1 tsp salt", "..."],
+    "steps": [
+      "Heat 1 tablespoon of butter in a pan over medium heat.",
+      "Add the chicken pieces and cook for 5-6 minutes until golden brown.",
+      "..."
+    ]
   }
 ]`;
 
