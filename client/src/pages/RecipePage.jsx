@@ -18,14 +18,12 @@ const fetchMealImage = async (title) => {
   ];
   for (const keyword of orderedWords) {
     try {
-      const res = await fetch(
-        `https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(keyword)}`
-      );
+      const res = await fetch(`https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(keyword)}`);
       const data = await res.json();
       if (data?.meals?.[0]?.strMealThumb) return data.meals[0].strMealThumb;
     } catch { continue; }
   }
-  return `https://placehold.co/400x300/BB4500/white?text=${encodeURIComponent(title)}`;
+  return null; // return null so Spoonacular uses its own image
 };
 
 export default function RecipePage() {
@@ -44,11 +42,9 @@ export default function RecipePage() {
   const [aiImages, setAiImages] = useState({});
   const [selectedRecipe, setSelectedRecipe] = useState(null);
 
-  // ─── Saved recipe titles (for star state) ────────────────────────────────
   const [savedTitles, setSavedTitles] = useState(new Set());
-  const [savingTitles, setSavingTitles] = useState(new Set()); // loading state per card
+  const [savingTitles, setSavingTitles] = useState(new Set());
 
-  // Get logged-in user from localStorage
   const user = JSON.parse(localStorage.getItem("user") || "null");
   const userId = user?.user_id;
 
@@ -57,13 +53,12 @@ export default function RecipePage() {
     "Pasta", "Beef", "Potatoes", "Cheese", "Eggs"
   ];
 
-  // ─── Fetch TheMealDB images after AI recipes load ─────────────────────────
+  // ─── Fetch TheMealDB images for AI recipes ────────────────────────────────
   useEffect(() => {
     if (aiRecipes.length === 0) return;
-    setAiImages({});
     aiRecipes.forEach(async (recipe, index) => {
       const imageUrl = await fetchMealImage(recipe.title);
-      setAiImages(prev => ({ ...prev, [index]: imageUrl }));
+      if (imageUrl) setAiImages(prev => ({ ...prev, [index]: imageUrl }));
     });
   }, [aiRecipes]);
 
@@ -77,14 +72,15 @@ export default function RecipePage() {
   const removeIngredient = (i) =>
     setIngredients(ingredients.filter((_, index) => index !== i));
 
-  // ─── MAIN GENERATE ──────────────────────────────────────────────────────────
+  // ─── MAIN GENERATE — both APIs fire together ──────────────────────────────
   const handleGenerate = async () => {
     if (ingredients.length === 0) return alert("Please add at least one ingredient!");
 
     setIsGenerating(true);
+    setLoadingPhase("loading");
     setSpoonacularRecipes([]);
-    setAiRecipes([]);
     setAiImages({});
+    setAiRecipes([]);
     setSavedTitles(new Set());
 
     const ingredientList = ingredients.join(",");
@@ -93,24 +89,19 @@ export default function RecipePage() {
       : ingredientList;
 
     try {
-      setLoadingPhase("spoonacular");
-
+      // Both APIs fire at the same time — UI waits for BOTH
       const [spoonacularResult, aiResult] = await Promise.allSettled([
-        fetch(`http://localhost:5000/api/recipes/search?ingredients=${ingredientList}`)
+        fetch(`http://localhost:5000/api/recipes/search?ingredients=${ingredientList}&cuisineType=${encodeURIComponent(cuisineType)}&cookingTime=${encodeURIComponent(cookingTime)}&foodPreference=${encodeURIComponent(foodPreference)}`)
           .then((r) => r.json()),
-        (async () => {
-          setLoadingPhase("ai");
-          const response = await fetch("http://localhost:5000/api/recipes/generate-ai", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ingredients: allIngredients, cuisineType, cookingTime, foodPreference }),
-          });
-          return response.json();
-        })(),
+        fetch("http://localhost:5000/api/recipes/generate-ai", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ingredients: allIngredients, cuisineType, cookingTime, foodPreference }),
+        }).then((r) => r.json()),
       ]);
 
-      if (spoonacularResult.status === "fulfilled") {
-        setSpoonacularRecipes(spoonacularResult.value || []);
+      if (spoonacularResult.status === "fulfilled" && Array.isArray(spoonacularResult.value)) {
+        setSpoonacularRecipes(spoonacularResult.value);
       }
       if (aiResult.status === "fulfilled" && Array.isArray(aiResult.value)) {
         setAiRecipes(aiResult.value);
@@ -127,124 +118,126 @@ export default function RecipePage() {
     }
   };
 
-  // ─── FETCH SPOONACULAR INSTRUCTIONS ─────────────────────────────────────────
-  const fetchInstructions = async (id) => {
-    try {
-      const response = await fetch(`http://localhost:5000/api/recipes/${id}/instructions`);
-      const data = await response.json();
-      setSelectedRecipe({ ...data, source: "spoonacular" });
-    } catch (error) {
-      console.error("Instructions error:", error);
-    }
-  };
-
-  // ─── SAVE / UNSAVE recipe ────────────────────────────────────────────────────
+  // ─── SAVE / UNSAVE recipe ─────────────────────────────────────────────────
   const handleSave = async (recipe, source, imageUrl = null) => {
     if (!userId) return alert("Please log in to save recipes!");
-
     const title = recipe.title;
     const isAlreadySaved = savedTitles.has(title);
-
-    // Optimistic UI update
     setSavingTitles(prev => new Set(prev).add(title));
 
     try {
       if (isAlreadySaved) {
-        // UNSAVE
         await fetch("http://localhost:5000/api/recipes/save", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ user_id: userId, title, source }),
         });
-        setSavedTitles(prev => {
-          const next = new Set(prev);
-          next.delete(title);
-          return next;
-        });
+        setSavedTitles(prev => { const next = new Set(prev); next.delete(title); return next; });
       } else {
-        // SAVE
-        // Build ingredients and steps depending on source
-        let ingredientsList = [];
-        let stepsList = [];
-        let externalId = null;
-        let cuisine = recipe.cuisine || null;
-        let cookingTimeVal = recipe.cookingTime || null;
-        let dietaryVal = recipe.dietary || null;
-
-        if (source === "ai") {
-          ingredientsList = recipe.ingredients || [];
-          stepsList = recipe.steps || [];
-        } else {
-          // Spoonacular — fetch full instructions first
-          try {
-            const res = await fetch(`http://localhost:5000/api/recipes/${recipe.id}/instructions`);
-            const data = await res.json();
-            externalId = String(recipe.id);
-            cuisine = data.cuisines?.[0] || null;
-            cookingTimeVal = data.readyInMinutes ? `${data.readyInMinutes} minutes` : null;
-            dietaryVal = [
-              data.vegetarian && "Vegetarian",
-              data.vegan && "Vegan",
-              data.glutenFree && "Gluten Free",
-            ].filter(Boolean).join(", ") || null;
-            ingredientsList = data.extendedIngredients?.map(i => i.original) || [];
-            stepsList = data.analyzedInstructions?.[0]?.steps?.map(s => s.step) || [];
-          } catch (e) {
-            console.error("Could not fetch Spoonacular details:", e);
-          }
-        }
-
         await fetch("http://localhost:5000/api/recipes/save", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             user_id: userId,
             source,
-            external_id: externalId,
+            external_id: recipe.id ? String(recipe.id) : null,
             title,
-            cuisine,
-            cooking_time: cookingTimeVal,
-            dietary: dietaryVal,
-            ingredients: ingredientsList,
-            steps: stepsList,
+            cuisine: recipe.cuisine || null,
+            cooking_time: recipe.cookingTime || null,
+            dietary: recipe.dietary || null,
+            ingredients: recipe.ingredients || [],
+            steps: recipe.steps || [],
             image_url: imageUrl || recipe.image || null,
           }),
         });
-
         setSavedTitles(prev => new Set(prev).add(title));
       }
     } catch (error) {
       console.error("Save error:", error);
       alert("Could not save recipe. Try again.");
     } finally {
-      setSavingTitles(prev => {
-        const next = new Set(prev);
-        next.delete(title);
-        return next;
-      });
+      setSavingTitles(prev => { const next = new Set(prev); next.delete(title); return next; });
     }
   };
 
-  // ─── Star button component ────────────────────────────────────────────────
+  // ─── Star button ──────────────────────────────────────────────────────────
   const StarButton = ({ recipe, source, imageUrl }) => {
     const isSaved = savedTitles.has(recipe.title);
     const isSaving = savingTitles.has(recipe.title);
     return (
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          handleSave(recipe, source, imageUrl);
-        }}
+        onClick={(e) => { e.stopPropagation(); handleSave(recipe, source, imageUrl); }}
         disabled={isSaving}
         title={isSaved ? "Remove from saved" : "Save this recipe"}
         className={`absolute top-2 right-2 z-20 p-1.5 rounded-full shadow-md transition-all
-          ${isSaved
-            ? "bg-yellow-400 text-white"
-            : "bg-white/90 text-gray-400 hover:text-yellow-400"
-          } ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+          ${isSaved ? "bg-yellow-400 text-white" : "bg-white/90 text-gray-400 hover:text-yellow-400"}
+          ${isSaving ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
       >
         <Star className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
       </button>
+    );
+  };
+
+  // ─── Unified Recipe Card (same for AI + Spoonacular) ─────────────────────
+  const RecipeCard = ({ recipe, index, source }) => {
+    const imageUrl = source === "ai"
+      ? (aiImages[index] || null)
+      : recipe.image;
+
+    return (
+      <div className="bg-white rounded-2xl shadow-md border-2 border-[#BB4500]/20 hover:border-[#BB4500] transition-all flex flex-col overflow-hidden">
+        {/* Image */}
+        <div className="w-full h-44 bg-gray-200 overflow-hidden relative">
+          <StarButton recipe={recipe} source={source} imageUrl={imageUrl} />
+          {!imageUrl ? (
+            <div className="absolute inset-0 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse" />
+          ) : (
+            <img
+              src={imageUrl}
+              alt={recipe.title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = `https://placehold.co/400x300/BB4500/white?text=${encodeURIComponent(recipe.title)}`;
+              }}
+            />
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="p-4 flex flex-col flex-grow">
+          <h3 className="font-black text-[#062b18] text-base mb-2">{recipe.title}</h3>
+
+          {recipe.description && (
+            <p className="text-gray-500 text-xs mb-3 line-clamp-2">{recipe.description}</p>
+          )}
+
+          <div className="flex flex-wrap gap-1 mb-4">
+            {recipe.cookingTime && (
+              <span className="bg-[#062b18]/10 text-[#062b18] text-xs font-bold px-2 py-0.5 rounded-full">
+                ⏱ {recipe.cookingTime}
+              </span>
+            )}
+            {recipe.cuisine && (
+              <span className="bg-[#BB4500]/10 text-[#BB4500] text-xs font-bold px-2 py-0.5 rounded-full">
+                🍽 {recipe.cuisine}
+              </span>
+            )}
+            {recipe.dietary && recipe.dietary !== "null" && (
+              <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                ✅ {recipe.dietary}
+              </span>
+            )}
+          </div>
+
+          <button
+            onClick={() => setSelectedRecipe({ ...recipe, source, image: imageUrl })}
+            className="mt-auto bg-[#BB4500] text-white py-2 rounded-xl font-bold hover:bg-[#062b18] transition text-sm"
+          >
+            View Recipe
+          </button>
+        </div>
+      </div>
     );
   };
 
@@ -301,68 +294,14 @@ export default function RecipePage() {
               <div>
                 <div className="flex items-center gap-3 mb-6">
                   <Sparkles className="w-6 h-6 text-[#BB4500]" />
-                  <h2 className="text-2xl font-black text-[#062b18]">AI Generated Desi Recipes</h2>
+                  <h2 className="text-2xl font-black text-[#062b18]">AI Generated Recipes</h2>
                   <span className="bg-[#BB4500] text-white text-xs font-bold px-3 py-1 rounded-full">
                     Groq AI • {aiRecipes.length} recipes
                   </span>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {aiRecipes.map((recipe, index) => (
-                    <div
-                      key={index}
-                      className="bg-white rounded-2xl shadow-md border-2 border-[#BB4500]/20 hover:border-[#BB4500] transition-all flex flex-col overflow-hidden"
-                    >
-                      <div className="w-full h-44 bg-gray-200 overflow-hidden relative">
-                        {/* ⭐ Star button */}
-                        <StarButton
-                          recipe={recipe}
-                          source="ai"
-                          imageUrl={aiImages[index]}
-                        />
-                        {!aiImages[index] ? (
-                          <div className="absolute inset-0 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 animate-pulse" />
-                        ) : (
-                          <img
-                            src={aiImages[index]}
-                            alt={recipe.title}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = `https://placehold.co/400x300/BB4500/white?text=${encodeURIComponent(recipe.title)}`;
-                            }}
-                          />
-                        )}
-                      </div>
-
-                      <div className="p-4 flex flex-col flex-grow">
-                        <h3 className="font-black text-[#062b18] text-base mb-2">{recipe.title}</h3>
-                        <p className="text-gray-500 text-xs mb-3 line-clamp-2">{recipe.description}</p>
-                        <div className="flex flex-wrap gap-1 mb-4">
-                          {recipe.cookingTime && (
-                            <span className="bg-[#062b18]/10 text-[#062b18] text-xs font-bold px-2 py-0.5 rounded-full">
-                              ⏱ {recipe.cookingTime}
-                            </span>
-                          )}
-                          {recipe.cuisine && (
-                            <span className="bg-[#BB4500]/10 text-[#BB4500] text-xs font-bold px-2 py-0.5 rounded-full">
-                              🍽 {recipe.cuisine}
-                            </span>
-                          )}
-                          {recipe.dietary && recipe.dietary !== "null" && (
-                            <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-full">
-                              ✅ {recipe.dietary}
-                            </span>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => setSelectedRecipe({ ...recipe, source: "ai", image: aiImages[index] })}
-                          className="mt-auto bg-[#BB4500] text-white py-2 rounded-xl font-bold hover:bg-[#062b18] transition text-sm"
-                        >
-                          View Recipe
-                        </button>
-                      </div>
-                    </div>
+                    <RecipeCard key={index} recipe={recipe} index={index} source="ai" />
                   ))}
                 </div>
               </div>
@@ -378,34 +317,9 @@ export default function RecipePage() {
                     Spoonacular • {spoonacularRecipes.length} recipes
                   </span>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {spoonacularRecipes.map((recipe) => (
-                    <div
-                      key={recipe.id}
-                      className="bg-white p-4 rounded-2xl shadow-md border border-gray-100 flex flex-col"
-                    >
-                      <div className="relative rounded-xl overflow-hidden mb-4">
-                        {/* ⭐ Star button */}
-                        <StarButton
-                          recipe={recipe}
-                          source="spoonacular"
-                          imageUrl={recipe.image}
-                        />
-                        <img
-                          src={recipe.image}
-                          className="w-full h-40 object-cover"
-                          alt={recipe.title}
-                        />
-                      </div>
-                      <h3 className="font-bold text-[#062b18] mb-4 flex-grow">{recipe.title}</h3>
-                      <button
-                        onClick={() => fetchInstructions(recipe.id)}
-                        className="bg-[#BB4500] text-white py-2 rounded-lg font-bold hover:bg-[#062b18] transition"
-                      >
-                        View Recipe
-                      </button>
-                    </div>
+                  {spoonacularRecipes.map((recipe, index) => (
+                    <RecipeCard key={recipe.id || index} recipe={recipe} index={index} source="spoonacular" />
                   ))}
                 </div>
               </div>
@@ -442,46 +356,52 @@ export default function RecipePage() {
                 }}
               />
 
-              {/* AI Recipe */}
-              {selectedRecipe.source === "ai" && (
-                <div className="space-y-5 text-left">
-                  {selectedRecipe.description && (
-                    <p className="text-gray-600 italic">{selectedRecipe.description}</p>
-                  )}
-                  {selectedRecipe.ingredients?.length > 0 && (
-                    <div>
-                      <h4 className="font-bold text-lg border-b pb-2 mb-3">Ingredients:</h4>
-                      <ul className="list-disc list-inside space-y-1">
-                        {selectedRecipe.ingredients.map((ing, i) => (
-                          <li key={i} className="text-gray-700">{ing}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {selectedRecipe.steps?.length > 0 && (
-                    <div>
-                      <h4 className="font-bold text-lg border-b pb-2 mb-3">Preparation Steps:</h4>
-                      {selectedRecipe.steps.map((step, i) => (
-                        <p key={i} className="text-gray-700 mb-2">
-                          <span className="font-bold text-[#BB4500] mr-2">{i + 1}.</span>{step}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+              {/* Same modal content for both sources */}
+              <div className="space-y-5 text-left">
+                {selectedRecipe.description && (
+                  <p className="text-gray-600 italic">{selectedRecipe.description}</p>
+                )}
 
-              {/* Spoonacular Recipe */}
-              {selectedRecipe.source === "spoonacular" && (
-                <div className="space-y-4 text-left">
-                  <h4 className="font-bold text-lg border-b pb-2">Preparation Steps:</h4>
-                  {selectedRecipe.analyzedInstructions?.[0]?.steps.map((step) => (
-                    <p key={step.number} className="text-gray-700">
-                      <span className="font-bold text-[#BB4500] mr-2">{step.number}.</span>{step.step}
-                    </p>
-                  )) || <p className="text-gray-500">Instructions coming soon!</p>}
+                <div className="flex flex-wrap gap-2">
+                  {selectedRecipe.cookingTime && (
+                    <span className="bg-[#062b18]/10 text-[#062b18] text-xs font-bold px-3 py-1 rounded-full">
+                      ⏱ {selectedRecipe.cookingTime}
+                    </span>
+                  )}
+                  {selectedRecipe.cuisine && (
+                    <span className="bg-[#BB4500]/10 text-[#BB4500] text-xs font-bold px-3 py-1 rounded-full">
+                      🍽 {selectedRecipe.cuisine}
+                    </span>
+                  )}
+                  {selectedRecipe.dietary && selectedRecipe.dietary !== "null" && (
+                    <span className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1 rounded-full">
+                      ✅ {selectedRecipe.dietary}
+                    </span>
+                  )}
                 </div>
-              )}
+
+                {selectedRecipe.ingredients?.length > 0 && (
+                  <div>
+                    <h4 className="font-bold text-lg border-b pb-2 mb-3">Ingredients:</h4>
+                    <ul className="list-disc list-inside space-y-1">
+                      {selectedRecipe.ingredients.map((ing, i) => (
+                        <li key={i} className="text-gray-700">{ing}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {selectedRecipe.steps?.length > 0 && (
+                  <div>
+                    <h4 className="font-bold text-lg border-b pb-2 mb-3">Preparation Steps:</h4>
+                    {selectedRecipe.steps.map((step, i) => (
+                      <p key={i} className="text-gray-700 mb-2">
+                        <span className="font-bold text-[#BB4500] mr-2">{i + 1}.</span>{step}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

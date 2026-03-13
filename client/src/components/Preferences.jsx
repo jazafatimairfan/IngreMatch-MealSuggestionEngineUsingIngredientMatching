@@ -20,12 +20,18 @@ const Preferences = ({ cuisineType, setCuisineType, cookingTime, setCookingTime,
             onChange={(e) => setCuisineType(e.target.value)}
             className="w-full px-4 py-3 border-2 border-[#062b18] rounded-2xl focus:border-[#BB4500] focus:ring-4 focus:ring-[#BB4500] focus:ring-opacity-20 outline-none transition-all text-[#000000] font-medium bg-white"
           >
-            <option>Any Cuisine(by default-desi)</option>
-            <option>Italian</option>
-            <option>Chinese</option>
-            <option>Indian/Pakistani</option>
-            <option>Mexican</option>
-            <option>Japanese</option>
+            <option value="Any Cuisine">Any Cuisine</option>
+            <option value="American">American</option>
+            <option value="Chinese">Chinese</option>
+            <option value="Filipino">Filipino</option>
+            <option value="French">French</option>
+            <option value="Indonesian">Indonesian</option>
+            <option value="Italian">Italian</option>
+            <option value="Japanese">Japanese</option>
+            <option value="Mexican">Mexican</option>
+            <option value="Pakistani / Indian">Pakistani / Indian</option>
+            <option value="Polish">Polish</option>
+            <option value="Taiwanese">Taiwanese</option>
           </select>
         </div>
 
